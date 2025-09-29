@@ -1,5 +1,5 @@
-import vertexShaderCode from "./shaders/vertex.wgsl" with { type: "text" }
-import fragmentShaderCode from "./shaders/fragment.wgsl" with { type: "text" }
+const vertexShaderCode = await(await fetch("./shaders/vertex.wgsl")).text()
+const fragmentShaderCode = await(await fetch("./shaders/fragment.wgsl")).text()
 
 const canvas = document.getElementById("canvas") as HTMLCanvasElement
 const context = canvas.getContext("webgpu")
@@ -56,6 +56,15 @@ function render() {
 
   device.queue.submit([encoder.finish()])
 }
-
-// Запуск рендеринга
-render()
+const observer = new ResizeObserver((entries) => {
+  for (const entry of entries) {
+    const canvas = entry.target as HTMLCanvasElement
+    const width = entry.contentBoxSize[0]!.inlineSize
+    const height = entry.contentBoxSize[0]!.blockSize
+    canvas.width = Math.max(1, Math.min(width, device.limits.maxTextureDimension2D))
+    canvas.height = Math.max(1, Math.min(height, device.limits.maxTextureDimension2D))
+    // re-render
+    render()
+  }
+})
+observer.observe(canvas)
