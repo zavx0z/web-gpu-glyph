@@ -1,5 +1,4 @@
-const vertexShaderCode = await(await fetch("./shaders/vertex.wgsl")).text()
-const fragmentShaderCode = await(await fetch("./shaders/fragment.wgsl")).text()
+import point from "./point.wgsl" with {type: "text"}
 
 const canvas = document.getElementById("canvas") as HTMLCanvasElement
 const context = canvas.getContext("webgpu")
@@ -12,25 +11,16 @@ if (!adapter) throw new Error("WebGPU адаптер не найден")
 const device = await adapter.requestDevice()
 
 // Настройка canvas
-const canvasFormat = navigator.gpu.getPreferredCanvasFormat()
-context.configure({ device, format: canvasFormat })
+const format = navigator.gpu.getPreferredCanvasFormat()
+context.configure({ device, format })
 
-const vertexShaderModule = device.createShaderModule({ label: "Vertex shader", code: vertexShaderCode })
-const fragmentShaderModule = device.createShaderModule({ label: "Fragment shader", code: fragmentShaderCode })
-
+const shader = device.createShaderModule({ label: "point", code: point })
 // Создание pipeline
 const pipeline = device.createRenderPipeline({
   label: "Point pipeline",
   layout: "auto",
-  vertex: {
-    module: vertexShaderModule,
-    entryPoint: "vs_main",
-  },
-  fragment: {
-    module: fragmentShaderModule,
-    entryPoint: "fs_main",
-    targets: [{ format: canvasFormat }],
-  },
+  vertex: { module: shader, entryPoint: "vs_main" },
+  fragment: { module: shader, entryPoint: "fs_main", targets: [{ format }] },
   primitive: {
     topology: "point-list",
   },

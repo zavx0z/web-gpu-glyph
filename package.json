@@ -13,6 +13,6 @@
     "typescript": "^5"
   },
   "scripts": {
-    "dev": "bun ./index.ts"
+    "dev": "bun --hot ./index.ts"
   }
 }
