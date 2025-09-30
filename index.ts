@@ -1,4 +1,6 @@
-import { fetchBinaryData, readTTFHeader } from "./fontLoader.js"
+import { parseFont, readLocaTable } from "./text/fontReader.js"
+import { readGlyphData } from "./text/glyfReader.js"
+import { fetchBinaryData } from "./text/loader.js"
 
 const adapter = await navigator.gpu.requestAdapter()
 if (!adapter) throw new Error("WebGPU адаптер не найден")
@@ -14,9 +16,15 @@ context.configure({ device, format })
 const point = await (await fetch("./text.wgsl")).text()
 const shader = device.createShaderModule({ label: "point", code: point })
 
-const binaryData = await fetchBinaryData("JetBrainsMono-Bold.ttf")
-const data = readTTFHeader(binaryData)
+const fontBuffer = await fetchBinaryData("JetBrainsMono-Bold.ttf")
+const data = parseFont(fontBuffer)
 console.log(data)
+const locaTable = readLocaTable(fontBuffer, data.get("loca")!)
+console.log(locaTable)
+const glyfTable = data.get("glyf")!
+console.log(glyfTable)
+const glyphData = readGlyphData(fontBuffer, glyfTable)
+console.log(glyphData)
 
 function render() {}
 
