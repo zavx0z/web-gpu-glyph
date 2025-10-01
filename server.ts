@@ -10,6 +10,6 @@ serve({
   },
   development: {
     hmr: true,
-    console: true,
+    console: false,
   },
 })

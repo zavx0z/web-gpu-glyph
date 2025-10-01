@@ -1,7 +1,7 @@
 /** Считывает контурные данные для каждого глифа из бинарных данных шрифта.
  * @param {ArrayBuffer} buffer - Буфер, содержащий бинарные данные TTF файла.
  * @param {import("./fontReader.js").GlyfTable} glyfTable - Объект, содержащий смещение и длину таблицы glyf.
- * @returns {Object} - Объект, содержащий контурные данные для каждого глифа.
+ * @returns {[]} - Объект, содержащий контурные данные для каждого глифа.
  */
 export function readGlyphData(buffer, glyfTable) {
   const dataView = new DataView(buffer)
@@ -18,7 +18,7 @@ export function readGlyphData(buffer, glyfTable) {
 
   // Пропуск инструкций
   const instructionLength = dataView.getUint16(offset, false)
-  console.log(instructionLength)
+  // console.log(instructionLength)
   offset += 2 + instructionLength
 
   // Чтение флагов
@@ -48,7 +48,7 @@ export function readGlyphData(buffer, glyfTable) {
 
   const allFlags = readFlags(dataView, numPoints)
 
-  console.log(allFlags)
+  // console.log(allFlags)
 
   // Чтение координат
   function readCoordinates(dataView, allFlags, readingX) {
@@ -77,8 +77,8 @@ export function readGlyphData(buffer, glyfTable) {
   const xCoords = readCoordinates(dataView, allFlags, true)
   const yCoords = readCoordinates(dataView, allFlags, false)
 
-  const result = new Array()
-  for (var i = 0; i < xCoords.length; i++) result.push([xCoords[i], yCoords[i]])
+  const result = []
+  for (let i = 0; i < xCoords.length; i++) result.push([xCoords[i], yCoords[i]])
   return result
 }
 
