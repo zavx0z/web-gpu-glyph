@@ -23,7 +23,14 @@ const startY = 160
 
 const lines = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"]
 
-// -------- on-curve полилинии (только прямые) --------
+/**
+ * Извлекает только on-curve точки из контура глифа для построения полилиний
+ * @param o - объект с данными контура глифа
+ * @param o.points - последовательность координат в font-units [x0, y0, x1, y1, ...]
+ * @param o.onCurve - флаг для каждой точки (1 — точка на кривой, 0 — off-curve контрольная)
+ * @param o.contours - массив индексов последней точки каждого контура
+ * @returns объект с отфильтрованными on-curve точками и границами контуров
+ */
 function outlineToOnCurvePolyline(o: { points: Float32Array; onCurve: Uint8Array; contours: Uint16Array }): {
   points: Float32Array
   contours: Uint32Array
@@ -38,6 +45,7 @@ function outlineToOnCurvePolyline(o: { points: Float32Array; onCurve: Uint8Array
   for (let ci = 0; ci < ends.length; ci++) {
     const end = ends[ci]!
     const base = outPts.length
+    // собираем только точки, лежащие на кривой — получится ломаная
     for (let i = start; i <= end; i++) {
       if (ON[i] !== 0) {
         const j = i * 2
@@ -45,6 +53,7 @@ function outlineToOnCurvePolyline(o: { points: Float32Array; onCurve: Uint8Array
       }
     }
     const added = (outPts.length - base) / 2
+    // если добавили хотя бы два on-curve узла — фиксируем конец контура
     if (added >= 2) outEnds.push(outPts.length / 2 - 1)
     else outPts.length = base
     start = end + 1
@@ -52,7 +61,11 @@ function outlineToOnCurvePolyline(o: { points: Float32Array; onCurve: Uint8Array
   return { points: new Float32Array(outPts), contours: new Uint32Array(outEnds) }
 }
 
-// Индексы для LINE_LIST с замыканием контуров
+/**
+ * Создает индексы для LINE_LIST с замыканием контуров
+ * @param contourEnds - массив индексов последних вершин каждого контура
+ * @returns массив пар индексов [i, i+1] с дополнительными парами [end, start] для замыкания
+ */
 function makeLineListIndices(contourEnds: Uint32Array): Uint32Array {
   const idx: number[] = []
   let start = 0
@@ -65,15 +78,29 @@ function makeLineListIndices(contourEnds: Uint32Array): Uint32Array {
   return new Uint32Array(idx)
 }
 
-// Кэш мешей глифов
+/**
+ * Структура данных для кэшированного меша глифа
+ */
 type GlyphMesh = {
+  /** GPU буфер с координатами вершин */
   pointBuffer: GPUBuffer
+  /** GPU буфер с индексами для LINE_LIST */
   indexBuffer: GPUBuffer
+  /** Количество индексов в indexBuffer */
   indicesCount: number
-  advanceWidthFU: number // advance в font-units
+  /** Ширина advance глифа в font-units */
+  advanceWidthFU: number
 }
 const glyphCache = new Map<number, GlyphMesh>()
 
+/**
+ * Создает (и кэширует) меш для глифа по его glyphId
+ * 1) Берем outline глифа, фильтруем только on-curve точки
+ * 2) Строим index buffer с замыканием контуров под topology: line-list
+ * 3) Кладем результат в кэш, чтобы не пересоздавать буферы каждый кадр
+ * @param gid - идентификатор глифа
+ * @returns кэшированный меш глифа или null если глиф пустой
+ */
 function getGlyphMesh(gid: number): GlyphMesh | null {
   const cached = glyphCache.get(gid)
   if (cached !== undefined) return cached
@@ -92,20 +119,16 @@ function getGlyphMesh(gid: number): GlyphMesh | null {
     size: poly.points.byteLength,
     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
   })
-  device.queue.writeBuffer(
-    pointBuffer,
-    0,
-    poly.points.buffer as ArrayBuffer,
-    poly.points.byteOffset,
-    poly.points.byteLength
-  )
+  // пишем данные вершин сразу после создания буфера
+  device.queue.writeBuffer(pointBuffer, 0, poly.points.buffer, poly.points.byteOffset, poly.points.byteLength)
 
   const indexBuffer = device.createBuffer({
     label: `glyph${gid}-indices`,
     size: indices.byteLength,
     usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
   })
-  device.queue.writeBuffer(indexBuffer, 0, indices.buffer as ArrayBuffer, indices.byteOffset, indices.byteLength)
+  // пишем индексы линий
+  device.queue.writeBuffer(indexBuffer, 0, indices.buffer, indices.byteOffset, indices.byteLength)
 
   const { advanceWidth } = font.getHMetric(gid)
   const mesh: GlyphMesh = {
