@@ -21,7 +21,17 @@ const lineGapPx = Math.round(fontSizePx * 1.35) // межстрочный
 const startX = 60
 const startY = 160
 
-const lines = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"]
+const lines = [
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+	"abcdefghijklmnopqrstuvwxyz",
+	"0123456789",
+	"!@#$%^&*()_+-=[]{}|;:,.<>?",
+	"`~'\"\\/©®™°±×÷",
+	"АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ",
+	"абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
+]
+
+type Point = { x: number; y: number; on: boolean }
 
 function outlineToPolylineTTF(
   o: { points: Float32Array; onCurve: Uint8Array; contours: Uint16Array },
@@ -38,22 +48,24 @@ function outlineToPolylineTTF(
 
   for (let ci = 0; ci < ends.length; ci++) {
     const end = ends[ci]
+    if (end === undefined) continue
+    
     const contourStartIndex = outPts.length / 2
 
     const count = end - start + 1
 
     // циклический доступ
-    const get = (i: number) => {
-      const idx = start + ((i + count) % count)
+    const get = (i: number): Point => {
+      const idx = start + ((i % count + count) % count)
       return {
-        x: P[idx * 2],
-        y: P[idx * 2 + 1],
+        x: P[idx * 2] || 0,
+        y: P[idx * 2 + 1] || 0,
         on: ON[idx] !== 0,
       }
     }
 
     let prev = get(0)
-    let curr: any
+    let curr: Point
 
     // если первый off-curve — implicit start
     if (!prev.on) {
@@ -83,7 +95,7 @@ function outlineToPolylineTTF(
         // wait for next
         const next = get(i + 1)
 
-        let endPt
+        let endPt: Point
         if (next.on) {
           endPt = next
           i++
@@ -117,6 +129,7 @@ function outlineToPolylineTTF(
     contours: new Uint32Array(outEnds),
   }
 }
+
 function quadBezier(
   p0: [number, number],
   p1: [number, number],
@@ -132,6 +145,7 @@ function quadBezier(
     out.push(x, y)
   }
 }
+
 /**
  * Создает индексы для LINE_LIST с замыканием контуров
  * @param contourEnds - массив индексов последних вершин каждого контура
@@ -141,7 +155,9 @@ function makeLineListIndices(contourEnds: Uint32Array): Uint32Array {
   const idx: number[] = []
   let start = 0
   for (let c = 0; c < contourEnds.length; c++) {
-    const end = contourEnds[c]!
+    const end = contourEnds[c]
+    if (end === undefined) continue
+    
     for (let i = start; i < end; i++) idx.push(i, i + 1)
     idx.push(end, start) // замыкание
     start = end + 1
@@ -162,7 +178,7 @@ type GlyphMesh = {
   /** Ширина advance глифа в font-units */
   advanceWidthFU: number
 }
-const glyphCache = new Map<number, GlyphMesh>()
+const glyphCache = new Map<number, GlyphMesh | null>()
 
 /**
  * Создает (и кэширует) меш для глифа по его glyphId
@@ -179,7 +195,7 @@ function getGlyphMesh(gid: number): GlyphMesh | null {
   const outline = font.getGlyphOutline(gid)
   const poly = outlineToPolylineTTF(outline, 10)
   if (poly.points.length === 0 || poly.contours.length === 0) {
-    glyphCache.set(gid, null as unknown as GlyphMesh)
+    glyphCache.set(gid, null)
     return null
   }
 
@@ -256,14 +272,25 @@ function render() {
   for (const line of lines) {
     let penX = startX
     for (const ch of line) {
-      const cp = ch.codePointAt(0)!
+      const cp = ch.codePointAt(0)
+      if (cp === undefined) continue
+      
       const gid = font.mapCharToGlyph(cp)
       const mesh = getGlyphMesh(gid)
       const { advanceWidth } = font.getHMetric(gid)
 
       if (mesh) {
         // Создаем отдельный uniform buffer для каждого глифа
-        const glyphParams = new Float32Array([font.unitsPerEm, fontSizePx, penX, penY, W, H, 0, 0])
+        const glyphParams = new Float32Array([
+          font.unitsPerEm, 
+          fontSizePx, 
+          penX, 
+          penY, 
+          W, 
+          H, 
+          0, 
+          0
+        ])
         const glyphUniformBuf = device.createBuffer({
           label: "glyph-params",
           size: 32,
