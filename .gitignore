@@ -1,5 +1,8 @@
 # dependencies (bun install)
 node_modules
+ai-documentation.md
+staged_changes.patch
+scripts
 
 # output
 out

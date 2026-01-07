@@ -23,44 +23,115 @@ const startY = 160
 
 const lines = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"]
 
-/**
- * Извлекает только on-curve точки из контура глифа для построения полилиний
- * @param o - объект с данными контура глифа
- * @param o.points - последовательность координат в font-units [x0, y0, x1, y1, ...]
- * @param o.onCurve - флаг для каждой точки (1 — точка на кривой, 0 — off-curve контрольная)
- * @param o.contours - массив индексов последней точки каждого контура
- * @returns объект с отфильтрованными on-curve точками и границами контуров
- */
-function outlineToOnCurvePolyline(o: { points: Float32Array; onCurve: Uint8Array; contours: Uint16Array }): {
-  points: Float32Array
-  contours: Uint32Array
-} {
-  const P = o.points,
-    ON = o.onCurve,
-    ends = o.contours
+function outlineToPolylineTTF(
+  o: { points: Float32Array; onCurve: Uint8Array; contours: Uint16Array },
+  curveSteps = 8
+): { points: Float32Array; contours: Uint32Array } {
+  const P = o.points
+  const ON = o.onCurve
+  const ends = o.contours
+
   const outPts: number[] = []
   const outEnds: number[] = []
 
   let start = 0
+
   for (let ci = 0; ci < ends.length; ci++) {
-    const end = ends[ci]!
-    const base = outPts.length
-    // собираем только точки, лежащие на кривой — получится ломаная
-    for (let i = start; i <= end; i++) {
-      if (ON[i] !== 0) {
-        const j = i * 2
-        outPts.push(P[j]!, P[j + 1]!)
+    const end = ends[ci]
+    const contourStartIndex = outPts.length / 2
+
+    const count = end - start + 1
+
+    // циклический доступ
+    const get = (i: number) => {
+      const idx = start + ((i + count) % count)
+      return {
+        x: P[idx * 2],
+        y: P[idx * 2 + 1],
+        on: ON[idx] !== 0,
       }
     }
-    const added = (outPts.length - base) / 2
-    // если добавили хотя бы два on-curve узла — фиксируем конец контура
+
+    let prev = get(0)
+    let curr: any
+
+    // если первый off-curve — implicit start
+    if (!prev.on) {
+      const last = get(count - 1)
+      if (last.on) {
+        prev = { ...last }
+      } else {
+        prev = {
+          x: (last.x + prev.x) * 0.5,
+          y: (last.y + prev.y) * 0.5,
+          on: true,
+        }
+      }
+      outPts.push(prev.x, prev.y)
+    } else {
+      outPts.push(prev.x, prev.y)
+    }
+
+    for (let i = 1; i <= count; i++) {
+      curr = get(i)
+
+      if (prev.on && curr.on) {
+        // line
+        outPts.push(curr.x, curr.y)
+        prev = curr
+      } else if (prev.on && !curr.on) {
+        // wait for next
+        const next = get(i + 1)
+
+        let endPt
+        if (next.on) {
+          endPt = next
+          i++
+        } else {
+          endPt = {
+            x: (curr.x + next.x) * 0.5,
+            y: (curr.y + next.y) * 0.5,
+            on: true,
+          }
+        }
+
+        quadBezier(
+          [prev.x, prev.y],
+          [curr.x, curr.y],
+          [endPt.x, endPt.y],
+          curveSteps,
+          outPts
+        )
+
+        prev = endPt
+      }
+    }
+
+    const added = outPts.length / 2 - contourStartIndex
     if (added >= 2) outEnds.push(outPts.length / 2 - 1)
-    else outPts.length = base
     start = end + 1
   }
-  return { points: new Float32Array(outPts), contours: new Uint32Array(outEnds) }
-}
 
+  return {
+    points: new Float32Array(outPts),
+    contours: new Uint32Array(outEnds),
+  }
+}
+function quadBezier(
+  p0: [number, number],
+  p1: [number, number],
+  p2: [number, number],
+  steps: number,
+  out: number[]
+) {
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps
+    const mt = 1 - t
+    const x = mt * mt * p0[0] + 2 * mt * t * p1[0] + t * t * p2[0]
+    const y = mt * mt * p0[1] + 2 * mt * t * p1[1] + t * t * p2[1]
+    out.push(x, y)
+  }
+}
 /**
  * Создает индексы для LINE_LIST с замыканием контуров
  * @param contourEnds - массив индексов последних вершин каждого контура
@@ -106,7 +177,7 @@ function getGlyphMesh(gid: number): GlyphMesh | null {
   if (cached !== undefined) return cached
 
   const outline = font.getGlyphOutline(gid)
-  const poly = outlineToOnCurvePolyline(outline)
+  const poly = outlineToPolylineTTF(outline, 10)
   if (poly.points.length === 0 || poly.contours.length === 0) {
     glyphCache.set(gid, null as unknown as GlyphMesh)
     return null

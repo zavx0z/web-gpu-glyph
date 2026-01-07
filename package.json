@@ -14,6 +14,13 @@
     "typescript": "^5"
   },
   "scripts": {
-    "dev": "bun --hot ./server.ts"
+    "dev": "bun --hot ./server.ts",
+    "collect": "bun run scripts/collect-files.ts",
+    "collect:help": "bun run scripts/collect-files.ts --help",
+    "collect:ai": "bun run scripts/collect-files.ts --files \"$(bun run scripts/project-files.ts ai)\" -o ai-documentation.md",
+    "collect:source": "bun run scripts/collect-files.ts --files \"$(bun run scripts/project-files.ts source)\" -o source-code.md",
+    "files:list": "bun run scripts/project-files.ts",
+    "files:help": "bun run scripts/project-files.ts help",
+    "patch": "git diff --staged > staged_changes.patch"
   }
 }
