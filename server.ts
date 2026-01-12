@@ -1,7 +1,7 @@
 import index from "./index.html"
 import { file, serve } from "bun"
 
-serve({
+const server = serve({
   routes: {
     "/": index,
     "/point.wgsl": file("./point.wgsl"),
@@ -13,3 +13,5 @@ serve({
     console: false,
   },
 })
+
+console.log(`Сервер запущен: ${server.url}`)

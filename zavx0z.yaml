@@ -1,0 +1,18 @@
+# zavx0z.yaml - Конфигурация проекта/пакета
+# Создано автоматически AI-CLI
+
+# Настройки для Tree Explorer (пример)
+# outputFile: ./tmp/files.json
+exclude:
+  - node_modules
+  - dist
+  - .git
+  - .vscode
+  - zavx0z.yaml
+  - .idx
+  - .idea
+  - .cursor
+  - tmp
+
+# Настройки для генератора коммитов
+# contextFile: ./tmp/join.md
