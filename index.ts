@@ -1,6 +1,6 @@
 import { TrueTypeFont } from "./TrueTypeFont"
 
-// -------------------- WebGPU init --------------------
+// -------------------- Инициализация WebGPU --------------------
 const adapter = await navigator.gpu.requestAdapter()
 if (!adapter) throw new Error("WebGPU адаптер не найден")
 
@@ -12,26 +12,47 @@ if (!context) throw new Error("WebGPU не поддерживается")
 
 context.configure({ device, format })
 
-// -------------------- CONFIG --------------------
+// -------------------- КОНФИГУРАЦИЯ --------------------
+/** Размер шрифта в пикселях */
 const FONT_SIZE_PX = 120
+/** Расстояние между буквами в пикселях */
 const LETTER_SPACING_PX = 6
+/** Расстояние между строками в пикселях */
 const LINE_GAP_PX = Math.round(FONT_SIZE_PX * 1.35)
+/** Начальная позиция X для текста */
 const START_X = 60
+/** Начальная позиция Y для текста */
 const START_Y = 200
 
+/** Строки текста для отображения */
 const TEXT_LINES = [
-  "Веста",
-  "и",
-  "Мирчик",
-  "я вас люблю!",
+"ABCDEFGHIJKLMOPSQRSTUVWXYZ",
+"abcdefghijklompsqrstuvwxyz",
+"АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ",
+"абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
+"0 1 2 3 4 5 6 7 8 9",
+"!\"№;:?/.,\\-=@\\",
 ]
 
+/** Адаптивная погрешность для кривых Безье в единицах шрифта */
 const ADAPTIVE_TOLERANCE_FU = 0.5
+/** Максимальная глубина рекурсии для адаптивного разбиения кривых */
 const MAX_SUBDIVISION_DEPTH = 12
 
-// -------------------- MATH & GEOMETRY --------------------
+// -------------------- МАТЕМАТИКА И ГЕОМЕТРИЯ --------------------
+/** Точка в 2D пространстве с флагом принадлежности к основной кривой */
 type Point = { x: number; y: number; on: boolean }
 
+/**
+ * Вычисляет минимальное расстояние от точки до отрезка
+ * @param px X-координата точки
+ * @param py Y-координата точки
+ * @param x0 X-координата начала отрезка
+ * @param y0 Y-координата начала отрезка
+ * @param x1 X-координата конца отрезка
+ * @param y1 Y-координата конца отрезка
+ * @returns Минимальное расстояние от точки до отрезка
+ */
 function pointLineDistance(px: number, py: number, x0: number, y0: number, x1: number, y1: number): number {
   const dx = x1 - x0
   const dy = y1 - y0
@@ -43,6 +64,13 @@ function pointLineDistance(px: number, py: number, x0: number, y0: number, x1: n
   return Math.hypot(px - projx, py - projy)
 }
 
+/**
+ * Разбивает квадратичную кривую Безье на 5 точек для адаптивного рендеринга
+ * @param p0 Начальная точка кривой
+ * @param p1 Контрольная точка кривой
+ * @param p2 Конечная точка кривой
+ * @returns Массив из 5 точек: [p0, p01, p012, p12, p2]
+ */
 function splitQuad(p0: [number, number], p1: [number, number], p2: [number, number]): [[number, number], [number, number], [number, number], [number, number], [number, number]] {
   const p01: [number, number] = [(p0[0] + p1[0]) * 0.5, (p0[1] + p1[1]) * 0.5]
   const p12: [number, number] = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5]
@@ -50,6 +78,15 @@ function splitQuad(p0: [number, number], p1: [number, number], p2: [number, numb
   return [p0, p01, p012, p12, p2]
 }
 
+/**
+ * Адаптивное разбиение квадратичной кривой Безье для достижения заданной точности
+ * @param p0 Начальная точка кривой
+ * @param p1 Контрольная точка кривой
+ * @param p2 Конечная точка кривой
+ * @param tolerance Максимально допустимая погрешность
+ * @param out Выходной массив для сохранения точек
+ * @param depth Текущая глубина рекурсии
+ */
 function quadBezierAdaptive(p0: [number, number], p1: [number, number], p2: [number, number], tolerance: number, out: number[], depth = 0) {
   if (depth > MAX_SUBDIVISION_DEPTH) {
     out.push(p2[0], p2[1])
@@ -65,9 +102,14 @@ function quadBezierAdaptive(p0: [number, number], p1: [number, number], p2: [num
   quadBezierAdaptive(c, d, e, tolerance, out, depth + 1)
 }
 
-// -------------------- FONT PROCESSING --------------------
+// -------------------- ОБРАБОТКА ШРИФТОВ --------------------
 const font = await TrueTypeFont.fromUrl("JetBrainsMono-Bold.ttf")
 
+/**
+ * Преобразует TTF outline в полилинию для рендеринга
+ * @param o Данные контуров глифа
+ * @returns Полилиния с точками и индексами контуров
+ */
 function outlineToPolylineTTF(o: { points: Float32Array; onCurve: Uint8Array; contours: Uint16Array }): { points: Float32Array; contours: Uint32Array } {
   const P = o.points
   const ON = o.onCurve
@@ -76,8 +118,8 @@ function outlineToPolylineTTF(o: { points: Float32Array; onCurve: Uint8Array; co
   const outEnds: number[] = []
   let start = 0
   for (let ci = 0; ci < ends.length; ci++) {
-    const end = ends[ci]
-    if (end === undefined) continue
+    const end = ends[ci]! // Uint16Array не может содержать undefined
+    if (end === 0) continue
     const contourStartIndex = outPts.length / 2
     const count = end - start + 1
     const get = (i: number): Point => {
@@ -111,6 +153,11 @@ function outlineToPolylineTTF(o: { points: Float32Array; onCurve: Uint8Array; co
   return { points: new Float32Array(outPts), contours: new Uint32Array(outEnds) }
 }
 
+/**
+ * Создает индексы для веерного триангулирования контуров
+ * @param contourEnds Массив индексов концов контуров
+ * @returns Массив индексов для веерного рендеринга
+ */
 function makeFanIndices(contourEnds: Uint32Array): Uint32Array {
   const idx: number[] = []
   let start = 0
@@ -121,18 +168,30 @@ function makeFanIndices(contourEnds: Uint32Array): Uint32Array {
   return new Uint32Array(idx)
 }
 
-// -------------------- GPU RESOURCES --------------------
+// -------------------- РЕСУРСЫ GPU --------------------
+/** Структура данных сетки глифа для рендеринга */
 type GlyphMesh = {
+  /** Буфер вершин для трафаретного прохода */
   stencilVertexBuffer: GPUBuffer
+  /** Буфер индексов для трафаретного прохода */
   stencilIndexBuffer: GPUBuffer
+  /** Количество индексов для трафаретного прохода */
   stencilIndicesCount: number
+  /** Буфер вершин для прохода покрытия */
   coverVertexBuffer: GPUBuffer
+  /** Буфер индексов для прохода покрытия */
   coverIndexBuffer: GPUBuffer
+  /** Ширина глифа в единицах шрифта */
   advanceWidthFU: number
 }
 
 const GLYPH_CACHE = new Map<number, GlyphMesh | null>()
 
+/**
+ * Получает или создает сетку глифа для рендеринга
+ * @param gid Идентификатор глифа
+ * @returns Сетка глифа или null если глиф не существует
+ */
 function getGlyphMesh(gid: number): GlyphMesh | null {
   if (GLYPH_CACHE.has(gid)) return GLYPH_CACHE.get(gid)!
 
@@ -143,24 +202,27 @@ function getGlyphMesh(gid: number): GlyphMesh | null {
     return null
   }
 
-  // 1. Stencil Mesh (Fan)
+  // 1. Сетка трафарета (Веер)
   const stencilIndices = makeFanIndices(poly.contours)
+  // Исправлена правильная типизация для WebGPU
   const stencilVertexBuffer = device.createBuffer({ size: poly.points.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
-  device.queue.writeBuffer(stencilVertexBuffer, 0, poly.points)
+  device.queue.writeBuffer(stencilVertexBuffer, 0, poly.points.buffer)
   const stencilIndexBuffer = device.createBuffer({ size: stencilIndices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST })
-  device.queue.writeBuffer(stencilIndexBuffer, 0, stencilIndices)
+  device.queue.writeBuffer(stencilIndexBuffer, 0, stencilIndices.buffer)
 
-  // 2. Cover Mesh (BBox)
+  // 2. Сетка покрытия (Ограничивающий прямоугольник)
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
   for (let i = 0; i < poly.points.length; i += 2) {
-    const x = poly.points[i], y = poly.points[i + 1]
+    // Исправлен безопасный доступ к элементам массива
+    const x = poly.points[i]!
+    const y = poly.points[i + 1]!
     if (x < minX) minX = x
     if (y < minY) minY = y
     if (x > maxX) maxX = x
     if (y > maxY) maxY = y
   }
   
-  // Padding for distortion
+  // Отступы для искажения
   const PAD = 300
   minX -= PAD; minY -= PAD; maxX += PAD; maxY += PAD;
 
@@ -170,9 +232,9 @@ function getGlyphMesh(gid: number): GlyphMesh | null {
   const coverIndices = new Uint32Array([0, 1, 2, 2, 1, 3])
   
   const coverVertexBuffer = device.createBuffer({ size: coverVerts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
-  device.queue.writeBuffer(coverVertexBuffer, 0, coverVerts)
+  device.queue.writeBuffer(coverVertexBuffer, 0, coverVerts.buffer)
   const coverIndexBuffer = device.createBuffer({ size: coverIndices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST })
-  device.queue.writeBuffer(coverIndexBuffer, 0, coverIndices)
+  device.queue.writeBuffer(coverIndexBuffer, 0, coverIndices.buffer)
 
   const mesh = {
     stencilVertexBuffer, stencilIndexBuffer, stencilIndicesCount: stencilIndices.length,
@@ -183,7 +245,7 @@ function getGlyphMesh(gid: number): GlyphMesh | null {
   return mesh
 }
 
-// -------------------- PIPELINE --------------------
+// -------------------- КОНВЕЙЕР --------------------
 const shaderModule = device.createShaderModule({ code: await (await fetch("./text.wgsl")).text() })
 
 const UNIFORM_ALIGN = device.limits.minUniformBufferOffsetAlignment
@@ -216,7 +278,7 @@ const bindGroup = device.createBindGroup({
 
 const depthStencilFormat = "depth24plus-stencil8"
 
-// Pipeline 1: Stencil Pass
+// Конвейер 1: Проход трафарета
 const stencilPipeline = device.createRenderPipeline({
   layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
   vertex: { module: shaderModule, entryPoint: "vs_main", buffers: [{ arrayStride: 8, attributes: [{ format: "float32x2", offset: 0, shaderLocation: 0 }] }] },
@@ -230,7 +292,7 @@ const stencilPipeline = device.createRenderPipeline({
   primitive: { topology: "triangle-list" }
 })
 
-// Pipeline 2: Cover Pass
+// Конвейер 2: Проход покрытия
 const coverPipeline = device.createRenderPipeline({
   layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
   vertex: { module: shaderModule, entryPoint: "vs_main", buffers: [{ arrayStride: 8, attributes: [{ format: "float32x2", offset: 0, shaderLocation: 0 }] }] },
@@ -246,7 +308,11 @@ const coverPipeline = device.createRenderPipeline({
 
 let depthTexture: GPUTexture | null = null
 
-// -------------------- RENDER --------------------
+// -------------------- РЕНДЕР --------------------
+/**
+ * Основная функция рендеринга кадра
+ * @param timeMs Время в миллисекундах с момента начала анимации
+ */
 function render(timeMs: number) {
   const dpr = window.devicePixelRatio || 1
   const W = Math.max(1, Math.round(canvas.clientWidth * dpr))
@@ -257,7 +323,7 @@ function render(timeMs: number) {
     depthTexture = device.createTexture({ size: [W, H], format: depthStencilFormat, usage: GPUTextureUsage.RENDER_ATTACHMENT })
   }
 
-  // 1. Prepare Data
+  // 1. Подготовка данных
   const globalParams = new Float32Array((MAX_GLYPHS * UNIFORM_ALIGN) / 4)
   const drawList: { mesh: GlyphMesh, index: number }[] = []
   
@@ -294,8 +360,8 @@ function render(timeMs: number) {
     penY += LINE_GAP_PX
   }
 
-  // 2. Upload
-  device.queue.writeBuffer(paramsBuffer, 0, globalParams, 0, glyphIndex * UNIFORM_ALIGN)
+  // 2. Загрузка
+  device.queue.writeBuffer(paramsBuffer, 0, globalParams.buffer, 0, glyphIndex * UNIFORM_ALIGN)
 
   const encoder = device.createCommandEncoder()
   const pass = encoder.beginRenderPass({
@@ -307,7 +373,7 @@ function render(timeMs: number) {
     }
   })
 
-  // 3. Draw Stencil
+  // 3. Рисование трафарета
   pass.setPipeline(stencilPipeline)
   for (const { mesh, index } of drawList) {
     pass.setBindGroup(0, bindGroup, [index * UNIFORM_ALIGN])
@@ -316,7 +382,7 @@ function render(timeMs: number) {
     pass.drawIndexed(mesh.stencilIndicesCount)
   }
 
-  // 4. Draw Cover
+  // 4. Рисование покрытия
   pass.setPipeline(coverPipeline)
   for (const { mesh, index } of drawList) {
     pass.setBindGroup(0, bindGroup, [index * UNIFORM_ALIGN])

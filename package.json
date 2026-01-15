@@ -7,10 +7,10 @@
   "version": "0.0.0",
   "devDependencies": {
     "@types/bun": "latest",
-    "@webgpu/types": "^0.1.65"
+    "@webgpu/types": "^0.1.69"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   },
   "scripts": {
     "dev": "bun --hot ./server.ts"

@@ -1,9 +1,17 @@
-// TrueTypeFont.ts
-// Быстрый ридер TTF: один DataView, кэши, simple+compound глифы, cmap(4/12), метрики.
-// Возвращает либо просто точки (Float32Array), либо полный Outline для кривых.
+/**
+ * @fileoverview Быстрый ридер TTF: один DataView, кэши, simple+compound глифы, cmap(4/12), метрики
+ * @author TrueType Font Team
+ * @version 1.0.0
+ */
 
+/**
+ * Информация о таблице TTF
+ */
 export type TableInfo = { offset: number; length: number }
 
+/**
+ * Структура данных контура глифа
+ */
 export type Outline = {
   /** координаты в font-units: [x0,y0, x1,y1, ...] */
   points: Float32Array
@@ -13,11 +21,19 @@ export type Outline = {
   contours: Uint16Array
 }
 
+/**
+ * Преобразует 16-битное число в формате F2.14 в число с плавающей точкой
+ * @param v 16-битное число в формате F2.14
+ * @returns Число с плавающей точкой
+ */
 function f2dot14ToFloat(v: number): number {
-  // int16 F2.14 -> float
   return v / 16384
 }
 
+/**
+ * Класс для работы с TrueType шрифтами
+ * Предоставляет быстрый парсинг TTF файлов и извлечение данных глифов
+ */
 export class TrueTypeFont {
   private dv: DataView
   private buf: ArrayBuffer
@@ -37,6 +53,10 @@ export class TrueTypeFont {
 
   private pointsCache: Map<number, Outline> = new Map()
 
+  /**
+   * Конструктор класса TrueTypeFont
+   * @param buf Буфер TTF файла
+   */
   private constructor(buf: ArrayBuffer) {
     this.buf = buf
     this.dv = new DataView(buf)
@@ -45,6 +65,11 @@ export class TrueTypeFont {
     this.ensureHmtx()
   }
 
+  /**
+   * Создает экземпляр TrueTypeFont из URL
+   * @param url URL файла шрифта
+   * @returns Экземпляр TrueTypeFont
+   */
   static async fromUrl(url: string) {
     const res = await fetch(url)
     if (!res.ok) throw new Error(`Failed to fetch font ${url}: ${res.status}`)
@@ -55,6 +80,9 @@ export class TrueTypeFont {
   // -------------------------------------------------------
   // Табличный каталог
   // -------------------------------------------------------
+  /**
+   * Читает каталог таблиц из TTF файла
+   */
   private readTableDirectory(): void {
     let off = 4 // scaler type
     const numTables = this.dv.getUint16(off, false)
@@ -75,6 +103,11 @@ export class TrueTypeFont {
     }
   }
 
+  /**
+   * Получает информацию о таблице TTF
+   * @param tag Имя таблицы
+   * @returns Информация о таблице
+   */
   private getTable(tag: string): TableInfo {
     const t = this.tables.get(tag)
     if (!t) throw new Error(`TTF table not found: ${tag}`)
@@ -84,7 +117,9 @@ export class TrueTypeFont {
   // -------------------------------------------------------
   // Метаданные и loca
   // -------------------------------------------------------
-  /** head.unitsPerEm (uint16 @ +18) */
+  /**
+   * Количество единиц на em из таблицы head
+   */
   get unitsPerEm(): number {
     if (this._unitsPerEm != null) return this._unitsPerEm
     const head = this.getTable("head")
@@ -92,7 +127,9 @@ export class TrueTypeFont {
     return this._unitsPerEm
   }
 
-  /** head.indexToLocFormat (int16 @ +50): 0=short (*2), 1=long (u32) */
+  /**
+   * Формат таблицы loca из таблицы head: 0=short (*2), 1=long (u32)
+   */
   get indexToLocFormat(): 0 | 1 {
     if (this._indexToLocFormat != null) return this._indexToLocFormat
     const head = this.getTable("head")
@@ -101,7 +138,9 @@ export class TrueTypeFont {
     return this._indexToLocFormat
   }
 
-  /** maxp.numGlyphs (uint16 @ +4) */
+  /**
+   * Количество глифов из таблицы maxp
+   */
   get numGlyphs(): number {
     if (this._numGlyphs != null) return this._numGlyphs
     const maxp = this.getTable("maxp")
@@ -109,7 +148,10 @@ export class TrueTypeFont {
     return this._numGlyphs
   }
 
-  /** loca offsets (numGlyphs+1) в байтах от начала glyf */
+  /**
+   * Обеспечивает загрузку таблицы loca
+   * @returns Массив смещений глифов в байтах от начала таблицы glyf
+   */
   private ensureLoca(): Uint32Array {
     if (this._loca) return this._loca
     const loca = this.getTable("loca")
@@ -125,6 +167,11 @@ export class TrueTypeFont {
     return out
   }
 
+  /**
+   * Получает диапазон байтов глифа в файле
+   * @param gid Идентификатор глифа
+   * @returns Объект с начальным и конечным смещениями
+   */
   private glyphRange(gid: number): { start: number; end: number } {
     if (gid < 0 || gid >= this.numGlyphs) throw new Error(`gid out of range: ${gid}`)
     const glyf = this.getTable("glyf")
@@ -135,6 +182,9 @@ export class TrueTypeFont {
   // -------------------------------------------------------
   // hhea / hmtx
   // -------------------------------------------------------
+  /**
+   * Обеспечивает загрузку таблицы hhea
+   */
   private ensureHhea() {
     if (this._hhea) return
     const hhea = this.getTable("hhea")
@@ -146,6 +196,9 @@ export class TrueTypeFont {
     this._hhea = { ascent, descent, lineGap, numberOfHMetrics }
   }
 
+  /**
+   * Обеспечивает загрузку таблицы hmtx
+   */
   private ensureHmtx() {
     if (this._hmtx) return
     const hmtx = this.getTable("hmtx")
@@ -171,7 +224,11 @@ export class TrueTypeFont {
     this._hmtx = { advance, lsb }
   }
 
-  /** Горизонтальная метрика глифа */
+  /**
+   * Получает горизонтальные метрики глифа
+   * @param gid Идентификатор глифа
+   * @returns Объект с шириной и смещением по X
+   */
   getHMetric(gid: number): { advanceWidth: number; lsb: number } {
     const nH = this._hhea!.numberOfHMetrics
     const adv = gid < nH ? this._hmtx!.advance[gid]! : this._hmtx!.advance[nH - 1]!
@@ -179,7 +236,9 @@ export class TrueTypeFont {
     return { advanceWidth: adv, lsb }
   }
 
-  /** Линейные метрики шрифта (em-space) */
+  /**
+   * Линейные метрики шрифта в единицах em
+   */
   get lineMetrics() {
     return {
       ascent: this._hhea!.ascent,
@@ -202,6 +261,9 @@ export class TrueTypeFont {
     idRangeOff: number
   } | null = null
 
+  /**
+   * Обеспечивает загрузку таблицы cmap
+   */
   private ensureCmap() {
     if (this._cmap12 || this._cmap4) return
     const cmap = this.getTable("cmap")
@@ -228,7 +290,11 @@ export class TrueTypeFont {
     }
   }
 
-  /** Unicode → glyphId */
+  /**
+   * Преобразует Unicode код символа в glyphId
+   * @param codepoint Unicode код символа
+   * @returns Идентификатор глифа
+   */
   mapCharToGlyph(codepoint: number): number {
     this.ensureCmap()
     // format 12 — сначала
@@ -277,7 +343,11 @@ export class TrueTypeFont {
     return 0
   }
 
-  /** Строка → массив glyphId */
+  /**
+   * Преобразует строку в массив glyphId
+   * @param str Исходная строка
+   * @returns Массив идентификаторов глифов
+   */
   mapStringToGlyphs(str: string): number[] {
     const out: number[] = []
     for (const ch of str) out.push(this.mapCharToGlyph(ch.codePointAt(0)!))
@@ -287,6 +357,11 @@ export class TrueTypeFont {
   // -------------------------------------------------------
   // Outline (simple + compound)
   // -------------------------------------------------------
+  /**
+   * Получает полные данные контура глифа
+   * @param gid Идентификатор глифа
+   * @returns Данные контура глифа
+   */
   getGlyphOutline(gid: number): Outline {
     const cached = this.pointsCache.get(gid)
     if (cached) return cached
@@ -308,12 +383,20 @@ export class TrueTypeFont {
     return outline
   }
 
-  /** Упрощённый помощник: только точки (без флагов/контуров) */
+  /**
+   * Получает только точки глифа (без флагов и контуров)
+   * @param gid Идентификатор глифа
+   * @returns Массив координат точек
+   */
   getGlyphPoints(gid: number): Float32Array {
     return this.getGlyphOutline(gid).points
   }
 
-  // ---------- simple ----------
+  /**
+   * Читает простой контур глифа
+   * @param gStart Смещение начала глифа
+   * @returns Данные контура глифа
+   */
   private readSimpleOutline(gStart: number): Outline {
     let p = gStart
     const numContours = this.dv.getInt16(p, false)
@@ -382,7 +465,11 @@ export class TrueTypeFont {
     return { points: pts, onCurve, contours: endPts }
   }
 
-  // ---------- compound ----------
+  /**
+   * Читает составной контур глифа
+   * @param gStart Смещение начала глифа
+   * @returns Данные контура глифа
+   */
   private readCompoundOutline(gStart: number): Outline {
     type T = { a: number; b: number; c: number; d: number; dx: number; dy: number }
     const I: T = { a: 1, b: 0, c: 0, d: 1, dx: 0, dy: 0 }
@@ -531,6 +618,12 @@ export class TrueTypeFont {
     return { points: pts, onCurve: on, contours: ends }
   }
 
+  /**
+   * Объединяет несколько Float32Array в один массив
+   * @param chunks Массив массивов для объединения
+   * @param totalFloats Общее количество float значений
+   * @returns Объединенный Float32Array
+   */
   private concatFloat32(chunks: Float32Array[], totalFloats: number): Float32Array {
     const out = new Float32Array(totalFloats)
     let off = 0
@@ -540,6 +633,11 @@ export class TrueTypeFont {
     }
     return out
   }
+  /**
+   * Объединяет несколько Uint8Array в один массив
+   * @param chunks Массив массивов для объединения
+   * @returns Объединенный Uint8Array
+   */
   private concatUint8(chunks: Uint8Array[]): Uint8Array {
     let total = 0
     for (const a of chunks) total += a.length
@@ -551,6 +649,12 @@ export class TrueTypeFont {
     }
     return out
   }
+  /**
+   * Объединяет несколько Uint16Array в один массив
+   * @param chunks Массив массивов для объединения
+   * @param total Общее количество элементов
+   * @returns Объединенный Uint16Array
+   */
   private concatUint16(chunks: Uint16Array[], total: number): Uint16Array {
     const out = new Uint16Array(total)
     let off = 0
