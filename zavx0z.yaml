@@ -13,6 +13,7 @@ exclude:
   - .idea
   - .cursor
   - tmp
+  - JetBrainsMono-Bold.ttf
 
 # Настройки для генератора коммитов
 # contextFile: ./tmp/join.md
